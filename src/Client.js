@@ -12,13 +12,7 @@ const {
     Events,
     WAState,
 } = require("./util/Constants");
-const { ExposeAuthStore } = require("./util/Injected/AuthStore/AuthStore");
-const { ExposeStore } = require("./util/Injected/Store");
-const {
-    ExposeLegacyAuthStore,
-} = require("./util/Injected/AuthStore/LegacyAuthStore");
-const { ExposeLegacyStore } = require("./util/Injected/LegacyStore");
-const { LoadUtils } = require("./util/Injected/Utils");
+const { ExposeStore, LoadUtils } = require("./util/Injected");
 const ChatFactory = require("./factories/ChatFactory");
 const ContactFactory = require("./factories/ContactFactory");
 const WebCacheFactory = require("./webCache/WebCacheFactory");
@@ -29,6 +23,7 @@ const {
     Contact,
     Location,
     Poll,
+    PollVote,
     GroupNotification,
     Label,
     Call,
@@ -36,6 +31,7 @@ const {
     List,
     Reaction,
 } = require("./structures");
+const LegacySessionAuth = require("./authStrategies/LegacySessionAuth");
 const NoAuth = require("./authStrategies/NoAuth");
 
 /**
@@ -77,6 +73,7 @@ const NoAuth = require("./authStrategies/NoAuth");
  * @fires Client#contact_changed
  * @fires Client#group_admin_changed
  * @fires Client#group_membership_request
+ * @fires Client#vote_update
  */
 class Client extends EventEmitter {
     constructor(options = {}) {
@@ -1317,6 +1314,16 @@ class Client extends EventEmitter {
             this.emit(Events.MESSAGE_CIPHERTEXT, new Message(this, msg));
         });
 
+        await page.exposeFunction("onPollVoteEvent", (vote) => {
+            const _vote = new PollVote(this, vote);
+            /**
+             * Emitted when some poll option is selected or deselected,
+             * shows a user's current selected option(s) on the poll
+             * @event Client#vote_update
+             */
+            this.emit(Events.VOTE_UPDATE, _vote);
+        });
+
         await page.evaluate(() => {
             window.Store.Msg.on("change", (msg) => {
                 window.onChangeMessageEvent(window.WWebJS.getMessageModel(msg));
@@ -1399,6 +1406,10 @@ class Client extends EventEmitter {
             });
             window.Store.Chat.on("change:unreadCount", (chat) => {
                 window.onChatUnreadCountEvent(chat);
+            });
+            window.Store.PollVote.on("add", (vote) => {
+                const pollVoteModel = window.WWebJS.getPollVoteModel(vote);
+                pollVoteModel && window.onPollVoteEvent(pollVoteModel);
             });
 
             if (
